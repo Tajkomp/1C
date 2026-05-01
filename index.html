@@ -631,5 +631,74 @@
     };
 })();
 </script>
+<!-- СКРИПТ ДЛЯ ИЗОЛЯЦИИ ПОЛЬЗОВАТЕЛЯ ИКРОМИДДИН -->
+<script>
+(function() {
+    const IKROM_USER = "Икромиддин";
+    const IKROM_PASS = "2002";
+    let isIkromMode = false;
+
+    // 1. Перехватываем стандартную функцию логина
+    const originalHandleLogin = handleLogin;
+    window.handleLogin = function() {
+        const loginInput = document.getElementById('user-login').value.trim();
+        const passInput = document.getElementById('user-pass').value;
+
+        if (loginInput === IKROM_USER && passInput === IKROM_PASS) {
+            isIkromMode = true;
+            alert("Добро пожаловать, Икромиддин! Загрузка вашего личного кабинета...");
+            
+            // Включаем режим изоляции базы данных
+            setupIkromDatabase();
+            
+            // Скрываем логин, показываем приложение
+            document.getElementById('login-page').style.display = 'none';
+            document.getElementById('main-app').style.display = 'block';
+            
+            // Меняем заголовок для наглядности
+            document.querySelector('nav h3').innerText = "TajKomp | " + IKROM_USER;
+        } else {
+            // Если это не Икромиддин, запускаем ваш оригинальный код
+            originalHandleLogin();
+        }
+    };
+
+    function setupIkromDatabase() {
+        // Отключаем старый слушатель Firebase (rdb.ref('/'))
+        rdb.ref('/').off();
+
+        // Создаем новый путь в Firebase специально для Икромиддина
+        const ikromPath = rdb.ref('/user_ikromiddin');
+
+        // Переписываем глобальный объект rdb.ref, чтобы все функции (updateStock, processSale и т.д.) 
+        // работали только внутри папки Икромиддина
+        const originalRef = rdb.ref;
+        rdb.ref = function(path) {
+            if (!path || path === '/') return ikromPath;
+            // Если путь начинается со слэша, убираем его для корректной склейки
+            const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+            return ikromPath.child(cleanPath);
+        };
+
+        // Слушаем данные только этого пользователя
+        ikromPath.on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                db.stock = data.stock ? Object.values(data.stock) : [];
+                db.sales = data.sales ? Object.keys(data.sales).map(key => ({...data.sales[key], id: key})) : [];
+                db.clients = data.clients ? Object.values(data.clients) : [];
+                db.adminPass = IKROM_PASS; // Фиксируем пароль для этого сеанса
+                render();
+            } else {
+                // Если база пустая (новый пользователь)
+                db.stock = [];
+                db.sales = [];
+                db.clients = [];
+                render();
+            }
+        });
+    }
+})();
+</script>
 </body>
 </html>
