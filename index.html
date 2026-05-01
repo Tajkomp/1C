@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TajKomp CRM v2.0 | Firebase</title>
+    <!-- ПОДКЛЮЧЕНИЕ FIREBASE SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <style>
+        :root { 
+            --primary: #2c3e50; --secondary: #27ae60; 
+            --danger: #e74c3c; --accent: #3498db; --bg: #f4f7f6; 
+        }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; color: #333; }
+        
+        #login-page { display: flex; justify-content: center; align-items: center; height: 100vh; padding: 20px; }
+        .login-card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: center; }
+        
+        #main-app { display: none; }
+        nav { background: var(--primary); color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+        .nav-links button { background: none; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 5px 10px; margin-left: 5px; cursor: pointer; border-radius: 4px; font-size: 13px; }
+
+        .container { padding: 15px; max-width: 1200px; margin: 0 auto; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        
+        input, select, button { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        button { background: var(--secondary); color: white; border: none; cursor: pointer; font-weight: 600; }
+        .table-wrapper { overflow-x: auto; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; min-width: 400px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f9f9f9; font-size: 13px; text-transform: uppercase; color: #777; }
+
+        .total-badge { background: var(--primary); color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+        .status-low { color: var(--danger); font-weight: bold; }
+        
+        @media (max-width: 600px) {
+            .grid { grid-template-columns: 1fr; }
+            nav h3 { font-size: 16px; }
+            .nav-links button { padding: 4px 6px; font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="login-page">
+        <div class="login-card">
+            <h2 style="color: var(--primary)">TajKomp Firebase</h2>
+            <input type="text" id="user-login" placeholder="Логин">
+            <input type="password" id="user-pass" placeholder="Пароль">
+            <button onclick="handleLogin()">Войти</button>
+        </div>
+    </div>
+
+    <div id="main-app">
+        <nav>
+            <h3>TajKomp Admin</h3>
+            <div class="nav-links">
+                <button onclick="showSection('sec-store')">Склад</button>
+                <button onclick="showSection('sec-clients')">Клиенты</button>
+                <button onclick="showSection('sec-settings')">Настройки</button>
+                <button onclick="location.reload()" style="background: var(--danger)">Выход</button>
+            </div>
+        </nav>
+
+        <div class="container">
+            <div id="sec-store" class="section">
+                <div class="grid">
+                    <div class="card">
+                        <h3>📦 Приход товара</h3>
+                        <input type="text" id="p-name" placeholder="Название товара">
+                        <input type="number" id="p-qty" placeholder="Количество">
+                        <input type="number" id="p-price" placeholder="Цена закупа (TJS)">
+                        <button onclick="updateStock()">Добавить</button>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead><tr><th>Товар</th><th>Склад</th><th>Цена</th></tr></thead>
+                                <tbody id="stock-list"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>💰 Новая продажа</h3>
+                        <input type="text" id="sale-client" placeholder="Имя клиента">
+                        <select id="sale-item"></select>
+                        <input type="number" id="sale-qty" placeholder="Количество">
+                        <button onclick="processSale()" style="background: var(--accent)">Оформить чек</button>
+                        <h4>Последние продажи</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead><tr><th>Дата</th><th>Клиент</th><th>Сумма</th></tr></thead>
+                                <tbody id="sales-history-short"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sec-clients" class="section" style="display:none">
+                <div class="card">
+                    <h3>👥 База клиентов и история покупок</h3>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Имя клиента</th><th>История (Товар | Дата)</th><th>Всего покупок</th></tr></thead>
+                            <tbody id="clients-full-list"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sec-settings" class="section" style="display:none">
+                <div class="card" style="max-width: 400px; margin: 0 auto;">
+                    <h3>🔐 Смена пароля администратора</h3>
+                    <input type="password" id="new-pass" placeholder="Новый пароль">
+                    <button onclick="changePassword()" style="background: var(--primary)">Сохранить новый пароль</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- КОНФИГУРАЦИЯ FIREBASE (ЗАМЕНИТЕ СВОИМИ ДАННЫМИ) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyBzTZJDPrXpjsQOZj0QDMXtDMaH3rMF8Ek",
+            authDomain: "c-tajkomp.firebaseapp.com",
+            databaseURL: "https://c-tajkomp-default-rtdb.firebaseio.com",
+            projectId: "c-tajkomp",
+            storageBucket: "c-tajkomp.firebasestorage.app",
+            messagingSenderId: "934121389366",
+            appId: "1:934121389366:web:a3a6a5ba820f3da7c30797"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const rdb = firebase.database();
+
+        let db = { stock: [], sales: [], adminPass: 'admin123' };
+
+        // Слушатель обновлений в реальном времени
+        rdb.ref('/').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                // Превращаем объекты Firebase в массивы для вашего кода
+                db.stock = data.stock ? Object.values(data.stock) : [];
+                db.sales = data.sales ? Object.values(data.sales) : [];
+                db.adminPass = data.adminPass || 'admin123';
+                render();
+            }
+        });
+
+        function handleLogin() {
+            const p = document.getElementById('user-pass').value;
+            if (p === db.adminPass) {
+                document.getElementById('login-page').style.display = 'none';
+                document.getElementById('main-app').style.display = 'block';
+            } else { alert('Неверный пароль'); }
+        }
+
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(s => s.style.display = 'none');
+            document.getElementById(id).style.display = 'block';
+        }
+
+        function updateStock() {
+            const name = document.getElementById('p-name').value;
+            const qty = parseInt(document.getElementById('p-qty').value);
+            const price = parseFloat(document.getElementById('p-price').value);
+
+            if(!name || !qty || !price) return alert('Заполните всё');
+
+            // В Firebase Realtime Database удобнее использовать имя товара как ключ
+            const stockRef = rdb.ref('stock/' + name.replace(/\./g, '_'));
+            
+            stockRef.once('value').then((snapshot) => {
+                const current = snapshot.val();
+                if(current) {
+                    stockRef.update({ qty: current.qty + qty, price: price });
+                } else {
+                    stockRef.set({ name, qty, price });
+                }
+            });
+            
+            document.getElementById('p-name').value = '';
+            document.getElementById('p-qty').value = '';
+        }
+
+        function processSale() {
+            const client = document.getElementById('sale-client').value;
+            const pName = document.getElementById('sale-item').value;
+            const qty = parseInt(document.getElementById('sale-qty').value);
+            const date = new Date().toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' });
+
+            let item = db.stock.find(i => i.name === pName);
+            if(item && item.qty >= qty) {
+                const newQty = item.qty - qty;
+                const saleData = { client, product: pName, qty, total: qty * item.price, date };
+
+                // Обновляем склад и добавляем продажу
+                rdb.ref('stock/' + pName.replace(/\./g, '_')).update({ qty: newQty });
+                rdb.ref('sales').push(saleData);
+            } else { alert('Ошибка на складе'); }
+        }
+
+        function changePassword() {
+            const newP = document.getElementById('new-pass').value;
+            if(newP.length < 4) return alert('Пароль слишком короткий');
+            rdb.ref('adminPass').set(newP).then(() => {
+                alert('Пароль изменен! Войдите снова.');
+                location.reload();
+            });
+        }
+
+        function render() {
+            const stockList = document.getElementById('stock-list');
+            const saleSelect = document.getElementById('sale-item');
+            stockList.innerHTML = '';
+            saleSelect.innerHTML = '<option value="">Выбрать товар...</option>';
+            
+            db.stock.forEach(i => {
+                stockList.innerHTML += `<tr><td>${i.name}</td><td class="${i.qty < 3 ? 'status-low' : ''}">${i.qty}</td><td>${i.price}</td></tr>`;
+                if(i.qty > 0) saleSelect.innerHTML += `<option value="${i.name}">${i.name} (${i.qty})</option>`;
+            });
+
+            const histShort = document.getElementById('sales-history-short');
+            histShort.innerHTML = '';
+            db.sales.slice(-5).reverse().forEach(s => {
+                histShort.innerHTML += `<tr><td>${s.date}</td><td>${s.client}</td><td>${s.total}</td></tr>`;
+            });
+
+            const clientList = document.getElementById('clients-full-list');
+            clientList.innerHTML = '';
+            const clientMap = {};
+            db.sales.forEach(s => {
+                if(!clientMap[s.client]) clientMap[s.client] = { items: [], total: 0 };
+                clientMap[s.client].items.push(`${s.product} (${s.date})`);
+                clientMap[s.client].total += s.total;
+            });
+
+            for(let name in clientMap) {
+                clientList.innerHTML += `<tr><td><strong>${name}</strong></td><td style="font-size: 12px; color: #666">${clientMap[name].items.join('<br>')}</td><td><span class="total-badge">${clientMap[name].total} TJS</span></td></tr>`;
+            }
+        }
+    </script>
+</body>
+</html>
