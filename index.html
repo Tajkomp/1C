@@ -375,5 +375,261 @@
             if (event.target == document.getElementById('clientModal')) closeModal();
         }
     </script>
+<!-- ДОПОЛНИТЕЛЬНЫЙ КОД ДЛЯ ФУНКЦИЙ УДАЛЕНИЯ (ВСТАВИТЬ ПЕРЕД </body>) -->
+<script>
+    // 1. Добавляем кнопку очистки прибыли в раздел настроек/отчетов
+    const settingsCard = document.querySelector('#sec-settings .grid');
+    if (settingsCard) {
+        const deleteCard = document.createElement('div');
+        deleteCard.className = 'card';
+        deleteCard.innerHTML = `
+            <h3>🗑 Опасная зона</h3>
+            <p style="font-size:12px; color:var(--danger)">Удаление всей истории продаж (прибыль обнулится)</p>
+            <button onclick="clearAllSales()" style="background: var(--danger)">Очистить историю продаж</button>
+        `;
+        settingsCard.appendChild(deleteCard);
+    }
+
+    // 2. Функция очистки всех продаж
+    function clearAllSales() {
+        if (confirm('ВНИМАНИЕ! Это полностью удалит всю историю продаж и обнулит отчеты. Продолжить?')) {
+            rdb.ref('sales').remove()
+                .then(() => alert('История очищена'))
+                .catch(e => alert('Ошибка: ' + e.message));
+        }
+    }
+
+    // 3. Функция удаления клиента
+    function deleteClient(name, event) {
+        event.stopPropagation(); // Чтобы не открывалось модальное окно при нажатии на удаление
+        if (confirm(`Удалить клиента "${name}" из списка? (История продаж останется)`)) {
+            rdb.ref('clients/' + name.replace(/\.|\#|\$|\[|\]/g, '_')).remove()
+                .then(() => alert('Клиент удален'))
+                .catch(e => alert('Ошибка: ' + e.message));
+        }
+    }
+
+    // 4. Функция удаления одной записи о продаже
+    function deleteSingleSale(saleId) {
+        if (confirm('Удалить эту запись о продаже? (Количество товара на складе не вернется автоматически)')) {
+            rdb.ref('sales/' + saleId).remove()
+                .then(() => {
+                    alert('Запись удалена');
+                    closeModal();
+                })
+                .catch(e => alert('Ошибка: ' + e.message));
+        }
+    }
+
+    // 5. Перехватываем стандартный рендер, чтобы добавить кнопки удаления в таблицу
+    const originalRender = render;
+    render = function() {
+        originalRender(); // Выполняем ваш оригинальный код
+
+        // Добавляем кнопки удаления в список клиентов
+        const rows = document.querySelectorAll('#clients-full-list tr');
+        rows.forEach(row => {
+            const name = row.querySelector('strong').innerText;
+            const actionTd = row.cells[2]; // Колонка со статусом
+            const delBtn = document.createElement('button');
+            delBtn.innerHTML = '🗑';
+            delBtn.style.cssText = 'width:30px; padding:2px; margin-left:10px; background:var(--danger); float:right;';
+            delBtn.onclick = (e) => deleteClient(name, e);
+            actionTd.appendChild(delBtn);
+        });
+    };
+
+    // 6. Перехватываем открытие модального окна, чтобы добавить кнопку удаления сделки
+    const originalOpenDetails = openClientDetails;
+    openClientDetails = function(name) {
+        originalOpenDetails(name); // Выполняем оригинал
+        
+        const saleRows = document.querySelectorAll('#clientDetailBody tr');
+        const clientSales = db.sales.filter(s => s.client === name);
+        
+        saleRows.forEach((row, index) => {
+            const saleId = clientSales[index].id;
+            const delCell = document.createElement('td');
+            delCell.innerHTML = `<button onclick="deleteSingleSale('${saleId}')" style="background:none; color:var(--danger); border:none; cursor:pointer; font-size:18px;">&times;</button>`;
+            row.appendChild(delCell);
+        });
+        
+        // Добавляем заголовок для колонки удаления в модалке, если его нет
+        const headerRow = document.querySelector('#clientDetailTable theological tr'); // Ошибка в вашем HTML (theological вместо thead), исправляем селектором:
+        const tableHead = document.querySelector('#clientDetailTable thead tr');
+        if (tableHead && tableHead.cells.length === 4) {
+            const th = document.createElement('th');
+            th.innerText = 'Удалить';
+            tableHead.appendChild(th);
+        }
+    };
+</script>
+<!-- ДОПОЛНИТЕЛЬНЫЙ КОД ДЛЯ ОТОБРАЖЕНИЯ КОЛИЧЕСТВА ПОКУПОК В МОДАЛКЕ -->
+<script>
+    (function() {
+        // Сохраняем оригинальную функцию
+        const originalOpenClientDetails = openClientDetails;
+
+        // Создаем новую функцию поверх старой
+        openClientDetails = function(name) {
+            // Сначала запускаем оригинал (чтобы таблица отрисовалась)
+            originalOpenClientDetails(name);
+
+            // Считаем общее количество покупок (позиций)
+            const clientSales = db.sales.filter(s => s.client === name);
+            const totalItemsCount = clientSales.reduce((sum, sale) => sum + (parseInt(sale.qty) || 0), 0);
+            const totalSum = clientSales.reduce((sum, sale) => sum + (parseFloat(sale.total) || 0), 0);
+
+            // Ищем заголовок в модальном окне
+            const modalTitle = document.getElementById('modalClientName');
+            
+            // Проверяем, есть ли уже блок статистики, если нет - создаем
+            let statsBadge = document.getElementById('client-stats-badge');
+            if (!statsBadge) {
+                statsBadge = document.createElement('div');
+                statsBadge.id = 'client-stats-badge';
+                statsBadge.style.cssText = `
+                    background: #ecf0f1;
+                    padding: 10px;
+                    border-radius: 8px;
+                    margin: 10px 0;
+                    font-size: 14px;
+                    border-left: 4px solid var(--accent);
+                    color: var(--primary);
+                `;
+                modalTitle.parentNode.insertBefore(statsBadge, modalTitle.nextSibling);
+            }
+
+            // Заполняем данными
+            statsBadge.innerHTML = `
+                <div>📦 Всего куплено товаров: <strong>${totalItemsCount} шт.</strong></div>
+                <div>💰 На общую сумму: <strong>${totalSum.toFixed(2)} TJS</strong></div>
+                <div>📑 Количество сделок: <strong>${clientSales.length}</strong></div>
+            `;
+        };
+    })();
+</script>
+
+<!-- НОВЫЙ СКРИПТ: ВЫБОР ЦЕНЫ (ОПТ/РОЗНИЦА) И СКРЫТИЕ СУММЫ В СПИСКЕ -->
+<script>
+(function() {
+    // 1. Добавляем выбор типа цены в форму продажи
+    const saleTypeSelect = document.getElementById('sale-type');
+    const priceModeSelect = document.createElement('select');
+    priceModeSelect.id = 'sale-price-mode';
+    priceModeSelect.innerHTML = `
+        <option value="retail">Цена: Розничная</option>
+        <option value="wholesale">Цена: Оптовая</option>
+    `;
+    saleTypeSelect.parentNode.insertBefore(priceModeSelect, saleTypeSelect);
+
+    // 2. Скрываем колонку "Всего покупок" в списке клиентов через CSS
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #sec-clients table th:nth-child(2), 
+        #sec-clients table td:nth-child(2) { 
+            display: none; 
+        }
+    `;
+    document.head.appendChild(style);
+
+    // 3. Перехватываем функцию processSale, чтобы учитывать выбранную цену
+    const originalProcessSale = processSale;
+    processSale = function() {
+        const itemSelect = document.getElementById('sale-item');
+        const priceMode = document.getElementById('sale-price-mode').value;
+        const pName = itemSelect.value;
+        
+        if(!pName) return originalProcessSale();
+
+        let item = db.stock.find(i => i.name === pName);
+        if(item) {
+            // Временно подменяем цену в объекте item для расчёта в оригинальной функции
+            const originalPrice = item.price;
+            if(priceMode === 'wholesale') {
+                item.price = item.optPrice || item.price;
+            }
+            
+            originalProcessSale();
+            
+            // Возвращаем цену назад для корректного отображения склада
+            item.price = originalPrice;
+        }
+    };
+})();
+</script>
+<!-- ДОПОЛНИТЕЛЬНЫЙ КОД: ОТОБРАЖЕНИЕ ИСТОРИИ ПРИХОДА ТОВАРА -->
+<script>
+(function() {
+    // Хранилище для отслеживания изменений (локальное, чтобы видеть разницу в текущей сессии)
+    let stockChanges = {};
+
+    // 1. Перехватываем функцию обновления склада, чтобы запомнить "добавку"
+    const originalUpdateStock = updateStock;
+    updateStock = function() {
+        const name = document.getElementById('p-name').value;
+        const qty = parseInt(document.getElementById('p-qty').value);
+        
+        if (name && !isNaN(qty)) {
+            // Ищем текущий остаток в базе перед обновлением
+            const currentItem = db.stock.find(i => i.name === name);
+            const oldQty = currentItem ? currentItem.qty : 0;
+
+            // Сохраняем информацию локально для отображения в таблице
+            stockChanges[name] = {
+                previous: oldQty,
+                added: qty
+            };
+        }
+        
+        // Вызываем оригинальную функцию (она отправит данные в Firebase)
+        originalUpdateStock();
+    };
+
+    // 2. Перехватываем рендер, чтобы изменить заголовки и строки таблицы
+    const originalRenderStock = render;
+    render = function() {
+        // Запускаем основной рендер
+        originalRenderStock();
+
+        // Модифицируем таблицу склада (sec-store)
+        const stockTableHead = document.querySelector('#sec-store table thead tr');
+        const stockTableRows = document.querySelectorAll('#stock-list tr');
+
+        if (stockTableHead && stockTableHead.cells.length === 3) {
+            // Добавляем заголовки новых колонок
+            stockTableHead.innerHTML = `
+                <th>Товар</th>
+                <th>Остаток</th>
+                <th>Было</th>
+                <th>Добавлено</th>
+                <th>Опт/Розн</th>
+            `;
+        }
+
+        // Обновляем каждую строку данными из stockChanges
+        stockTableRows.forEach(row => {
+            const name = row.cells[0].innerText;
+            const change = stockChanges[name];
+            
+            // Создаем новые ячейки
+            const oldQtyCell = document.createElement('td');
+            const addedQtyCell = document.createElement('td');
+
+            if (change) {
+                oldQtyCell.innerText = change.previous;
+                addedQtyCell.innerHTML = `<span style="color:var(--secondary); font-weight:bold;">+${change.added}</span>`;
+            } else {
+                oldQtyCell.innerText = '-';
+                addedQtyCell.innerText = '-';
+            }
+
+            // Вставляем ячейки перед колонкой "Опт/Розн"
+            row.insertBefore(oldQtyCell, row.cells[2]);
+            row.insertBefore(addedQtyCell, row.cells[3]);
+        });
+    };
+})();
+</script>
 </body>
 </html>
