@@ -700,5 +700,244 @@
     }
 })();
 </script>
+<!-- БЛОК УЧЕТА РАСХОДОВ И ПРИБЫЛИ -->
+<script>
+(function() {
+    // 1. Добавляем вкладку "Расходы" в навигацию
+    const navLinks = document.querySelector('.nav-links');
+    const expenseBtn = document.createElement('button');
+    expenseBtn.innerText = 'Расходы';
+    expenseBtn.onclick = () => showSection('sec-expenses');
+    navLinks.insertBefore(expenseBtn, navLinks.querySelector('button[onclick="location.reload()"]'));
+
+    // 2. Создаем секцию расходов в HTML
+    const container = document.querySelector('.container');
+    const expenseSection = document.createElement('div');
+    expenseSection.id = 'sec-expenses';
+    expenseSection.className = 'section';
+    expenseSection.style.display = 'none';
+    expenseSection.innerHTML = `
+        <div class="grid">
+            <div class="card">
+                <h3>💸 Записать расход</h3>
+                <input type="text" id="exp-title" placeholder="На что потрачено (аренда, обед и т.д.)">
+                <input type="number" id="exp-amount" placeholder="Сумма (TJS)">
+                <button onclick="addExpense()" style="background: var(--danger)">Добавить расход</button>
+            </div>
+            <div class="card">
+                <h3>📋 История расходов</h3>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr><th>Дата</th><th>Описание</th><th>Сумма</th></tr>
+                        </thead>
+                        <tbody id="expense-list"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+    container.appendChild(expenseSection);
+
+    // 3. Добавляем отображение чистой прибыли в отчеты
+    const profitCard = document.querySelector('#sec-settings .card');
+    if (profitCard) {
+        const netProfitDiv = document.createElement('div');
+        netProfitDiv.innerHTML = `
+            <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+            <h3 style="font-size: 16px;">📉 Чистая прибыль (за месяц)</h3>
+            <div id="net-profit-report" style="font-size: 24px; font-weight: bold; color: var(--accent);">0 TJS</div>
+            <p style="font-size: 11px; color: #666">Формула: Прибыль с продаж - Расходы</p>
+        `;
+        profitCard.appendChild(netProfitDiv);
+    }
+
+    // --- ЛОГИКА ---
+
+    // Функция добавления расхода в Firebase
+    window.addExpense = function() {
+        const title = document.getElementById('exp-title').value;
+        const amount = parseFloat(document.getElementById('exp-amount').value);
+        const date = new Date().toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' });
+        const monthKey = new Date().toLocaleString('ru-RU', { month:'2-digit', year:'numeric' });
+
+        if (!title || !amount) return alert('Введите название и сумму');
+
+        rdb.ref('expenses').push({
+            title,
+            amount,
+            date,
+            monthKey
+        }).then(() => {
+            document.getElementById('exp-title').value = '';
+            document.getElementById('exp-amount').value = '';
+        });
+    };
+
+    // Перехватываем рендер для обновления таблицы расходов и расчета чистой прибыли
+    const originalRenderAll = render;
+    render = function() {
+        originalRenderAll(); // Вызов основного рендера
+
+        const currentMonth = new Date().toLocaleString('ru-RU', { month:'2-digit', year:'numeric' });
+        
+        rdb.ref('expenses').once('value', (snapshot) => {
+            const expensesData = snapshot.val();
+            const list = document.getElementById('expense-list');
+            list.innerHTML = '';
+            
+            let totalMonthlyExpenses = 0;
+
+            if (expensesData) {
+                Object.values(expensesData).reverse().forEach(exp => {
+                    // Рендер таблицы
+                    list.innerHTML += `
+                        <tr>
+                            <td>${exp.date}</td>
+                            <td>${exp.title}</td>
+                            <td style="color:var(--danger)">-${exp.amount} TJS</td>
+                        </tr>
+                    `;
+                    // Считаем расходы текущего месяца
+                    if (exp.monthKey === currentMonth) {
+                        totalMonthlyExpenses += parseFloat(exp.amount);
+                    }
+                });
+            }
+
+            // Считаем грязную прибыль из вашего существующего блока (уже отрисованного)
+            const grossProfitText = document.getElementById('profit-report').innerText;
+            const grossProfit = parseFloat(grossProfitText) || 0;
+
+            // Считаем и выводим чистую прибыль
+            const netProfit = grossProfit - totalMonthlyExpenses;
+            const netReport = document.getElementById('net-profit-report');
+            if (netReport) {
+                netReport.innerText = netProfit.toFixed(2) + ' TJS';
+                netReport.style.color = netProfit >= 0 ? 'var(--secondary)' : 'var(--danger)';
+            }
+        });
+    };
+})();
+</script>
+<script>
+(function() {
+    // 1. Добавляем стили для курсора, чтобы пользователь понимал, что на товар можно нажать
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #stock-list tr { cursor: pointer; transition: background 0.2s; }
+        #stock-list tr:hover { background-color: #f0f4f8; }
+        .highlight-input { animation: highlight 1s ease; }
+        @keyframes highlight {
+            0% { background-color: #fff; }
+            50% { background-color: #d4edda; }
+            100% { background-color: #fff; }
+        }
+    `;
+    document.head.appendChild(style);
+
+    // 2. Функция, которая заполняет форму приход товара
+    window.fillStockForm = function(name, optPrice, price) {
+        document.getElementById('p-name').value = name;
+        document.getElementById('p-opt-price').value = optPrice;
+        document.getElementById('p-price').value = price;
+        
+        // Фокусируемся на поле количества, чтобы сразу вводить
+        const qtyInput = document.getElementById('p-qty');
+        qtyInput.focus();
+        qtyInput.classList.add('highlight-input');
+        
+        // Убираем подсветку через секунду
+        setTimeout(() => qtyInput.classList.remove('highlight-input'), 1000);
+        
+        // Скроллим к форме, если мы на мобилке
+        document.getElementById('p-name').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    // 3. Перехватываем отрисовку таблицы, чтобы добавить событие клика на строки
+    const originalRenderForClick = render;
+    render = function() {
+        originalRenderForClick(); // Запускаем ваш основной рендер
+
+        const rows = document.querySelectorAll('#stock-list tr');
+        
+        // Находим данные в базе и привязываем их к строкам
+        rows.forEach(row => {
+            const name = row.cells[0].innerText;
+            const itemData = db.stock.find(i => i.name === name);
+            
+            if (itemData) {
+                row.onclick = () => fillStockForm(itemData.name, itemData.optPrice || 0, itemData.price);
+                
+                // Добавляем подсказку при наведении
+                row.title = "Нажмите, чтобы добавить количество для " + name;
+            }
+        });
+    };
+})();
+</script>
+<!-- СКРИПТ: РЕДАКТИРОВАНИЕ ЦЕНЫ ВО ВРЕМЯ ПРОДАЖИ -->
+<script>
+(function() {
+    // 1. Добавляем поле для ручного ввода цены в блок продажи
+    const saleQtyInput = document.getElementById('sale-qty');
+    const customPriceInput = document.createElement('input');
+    customPriceInput.type = 'number';
+    customPriceInput.id = 'sale-custom-price';
+    customPriceInput.placeholder = 'Цена за 1 шт. (изменяемая)';
+    customPriceInput.style.borderColor = 'var(--accent)';
+    
+    // Вставляем поле цены после поля количества
+    saleQtyInput.parentNode.insertBefore(customPriceInput, saleQtyInput.nextSibling);
+
+    // 2. Автоматическое подставление цены при выборе товара
+    const saleItemSelect = document.getElementById('sale-item');
+    saleItemSelect.addEventListener('change', function() {
+        const selectedName = this.value;
+        const item = db.stock.find(i => i.name === selectedName);
+        if (item) {
+            // По умолчанию ставим розничную цену из базы
+            document.getElementById('sale-custom-price').value = item.price;
+        } else {
+            document.getElementById('sale-custom-price').value = '';
+        }
+    });
+
+    // 3. Перехватываем функцию оформления сделки
+    const originalProcessSale = processSale;
+    window.processSale = function() {
+        const customPrice = parseFloat(document.getElementById('sale-custom-price').value);
+        const pName = document.getElementById('sale-item').value;
+
+        if (!pName) return alert('Выберите товар');
+        if (isNaN(customPrice) || customPrice <= 0) return alert('Введите корректную цену');
+
+        // Находим товар в локальной копии базы
+        let item = db.stock.find(i => i.name === pName);
+        
+        if (item) {
+            // ВРЕМЕННО подменяем цену в объекте товара перед вызовом оригинальной функции.
+            // Оригинальная функция processSale использует item.price для расчета total.
+            const backupPrice = item.price;
+            item.price = customPrice;
+
+            // Вызываем ваш оригинальный код
+            originalProcessSale();
+
+            // Возвращаем цену назад в объекте (чтобы на складе отображалась старая розничная цена)
+            item.price = backupPrice;
+            
+            // Очищаем поле цены после продажи
+            document.getElementById('sale-custom-price').value = '';
+        }
+    };
+
+    // 4. Добавляем визуальную подсказку
+    const saleTitle = document.querySelector('#sec-store .card:nth-child(2) h3');
+    if (saleTitle) {
+        saleTitle.innerHTML += ' <small style="font-size:12px; color:var(--accent)">(можно менять цену)</small>';
+    }
+})();
+</script>
 </body>
 </html>
