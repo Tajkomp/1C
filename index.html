@@ -939,5 +939,64 @@
     }
 })();
 </script>
+<!-- УМНЫЙ ПОИСК ДЛЯ СКЛАДА -->
+<script>
+(function() {
+    // 1. Создаем и добавляем поле поиска над таблицей склада
+    const stockCard = document.querySelector('#sec-store .card');
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.id = 'stock-search';
+    searchInput.placeholder = '🔍 Быстрый поиск товара на складе...';
+    searchInput.style.cssText = `
+        margin-bottom: 10px;
+        border: 2px solid var(--accent);
+        background: #fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="%233498db" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>') no-repeat 10px center;
+        background-size: 20px;
+        padding-left: 40px;
+    `;
+
+    // Вставляем поиск перед таблицей
+    const tableWrapper = stockCard.querySelector('.table-wrapper');
+    stockCard.insertBefore(searchInput, tableWrapper);
+
+    // 2. Логика фильтрации
+    searchInput.addEventListener('input', function() {
+        const query = this.value.toLowerCase();
+        const rows = document.querySelectorAll('#stock-list tr');
+
+        rows.forEach(row => {
+            const productName = row.cells[0].innerText.toLowerCase();
+            if (productName.includes(query)) {
+                row.style.display = '';
+            } else {
+                row.style.display = 'none';
+            }
+        });
+    });
+
+    // 3. Улучшаем визуальный отклик (стили уже были в предыдущих скриптах, но закрепим)
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #stock-search:focus {
+            box-shadow: 0 0 8px rgba(52, 152, 219, 0.3);
+            outline: none;
+        }
+        #stock-list tr:active {
+            background-color: #d4edda !important;
+        }
+    `;
+    document.head.appendChild(style);
+
+    // 4. Очистка поиска после добавления товара
+    const originalUpdateStock = updateStock;
+    window.updateStock = function() {
+        originalUpdateStock();
+        document.getElementById('stock-search').value = '';
+        // Сбрасываем фильтр (показываем все строки)
+        document.querySelectorAll('#stock-list tr').forEach(r => r.style.display = '');
+    };
+})();
+</script>
 </body>
 </html>
