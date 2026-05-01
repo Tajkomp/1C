@@ -11,6 +11,7 @@
         :root { 
             --primary: #2c3e50; --secondary: #27ae60; 
             --danger: #e74c3c; --accent: #3498db; --bg: #f4f7f6; 
+            --warning: #f39c12;
         }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; color: #333; }
         
@@ -23,9 +24,9 @@
 
         .container { padding: 15px; max-width: 1200px; margin: 0 auto; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
-        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
         
-        input, select, button { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; }
+        input, select, button { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
         button { background: var(--secondary); color: white; border: none; cursor: pointer; font-weight: 600; }
         .table-wrapper { overflow-x: auto; margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; min-width: 400px; }
@@ -34,7 +35,12 @@
 
         .total-badge { background: var(--primary); color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
         .status-low { color: var(--danger); font-weight: bold; }
+        .status-debt { background: var(--warning); color: white; padding: 2px 5px; border-radius: 4px; font-size: 11px; }
+        .status-paid { background: var(--secondary); color: white; padding: 2px 5px; border-radius: 4px; font-size: 11px; }
         
+        .modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.5); }
+        .modal-content { background:white; margin:10% auto; padding:20px; width:90%; max-width:600px; border-radius:10px; max-height: 80vh; overflow-y: auto; }
+
         @media (max-width: 600px) {
             .grid { grid-template-columns: 1fr; }
             nav h3 { font-size: 16px; }
@@ -59,7 +65,7 @@
             <div class="nav-links">
                 <button onclick="showSection('sec-store')">Склад</button>
                 <button onclick="showSection('sec-clients')">Клиенты</button>
-                <button onclick="showSection('sec-settings')">Настройки</button>
+                <button onclick="showSection('sec-settings')">Отчеты</button>
                 <button onclick="location.reload()" style="background: var(--danger)">Выход</button>
             </div>
         </nav>
@@ -71,11 +77,12 @@
                         <h3>📦 Приход товара</h3>
                         <input type="text" id="p-name" placeholder="Название товара">
                         <input type="number" id="p-qty" placeholder="Количество">
-                        <input type="number" id="p-price" placeholder="Цена закупа (TJS)">
-                        <button onclick="updateStock()">Добавить</button>
+                        <input type="number" id="p-opt-price" placeholder="Цена оптом (закуп)">
+                        <input type="number" id="p-price" placeholder="Цена продажи (розница)">
+                        <button onclick="updateStock()">Добавить на склад</button>
                         <div class="table-wrapper">
                             <table>
-                                <thead><tr><th>Товар</th><th>Склад</th><th>Цена</th></tr></thead>
+                                <thead><tr><th>Товар</th><th>Склад</th><th>Опт/Розн</th></tr></thead>
                                 <tbody id="stock-list"></tbody>
                             </table>
                         </div>
@@ -83,14 +90,21 @@
 
                     <div class="card">
                         <h3>💰 Новая продажа</h3>
-                        <input type="text" id="sale-client" placeholder="Имя клиента">
+                        <!-- Добавлена возможность клика и фокуса для отображения списка -->
+                        <input type="text" id="sale-client" list="client-suggestions" placeholder="Имя клиента (пусто = Гость)" onfocus="this.value=''">
+                        <datalist id="client-suggestions"></datalist>
+                        
                         <select id="sale-item"></select>
                         <input type="number" id="sale-qty" placeholder="Количество">
-                        <button onclick="processSale()" style="background: var(--accent)">Оформить чек</button>
-                        <h4>Последние продажи</h4>
+                        <select id="sale-type">
+                            <option value="продажа">Оплачено (Наличные/Карта)</option>
+                            <option value="безналичий">Безналичный (В долг)</option>
+                        </select>
+                        <button onclick="processSale()" style="background: var(--accent)">Оформить сделку</button>
+                        <h4>Последние действия</h4>
                         <div class="table-wrapper">
                             <table>
-                                <thead><tr><th>Дата</th><th>Клиент</th><th>Сумма</th></tr></thead>
+                                <thead><tr><th>Клиент</th><th>Сумма</th><th>Тип</th></tr></thead>
                                 <tbody id="sales-history-short"></tbody>
                             </table>
                         </div>
@@ -100,10 +114,14 @@
 
             <div id="sec-clients" class="section" style="display:none">
                 <div class="card">
-                    <h3>👥 База клиентов и история покупок</h3>
+                    <h3>👥 Управление клиентами</h3>
+                    <div style="display:flex; gap:10px">
+                        <input type="text" id="new-client-name" placeholder="ФИО нового клиента">
+                        <button onclick="addNewClient()" style="width:150px">Добавить</button>
+                    </div>
                     <div class="table-wrapper">
                         <table>
-                            <thead><tr><th>Имя клиента</th><th>История (Товар | Дата)</th><th>Всего покупок</th></tr></thead>
+                            <thead><tr><th>Имя клиента (нажмите для деталей)</th><th>Всего покупок</th><th>Статус</th></tr></thead>
                             <tbody id="clients-full-list"></tbody>
                         </table>
                     </div>
@@ -111,17 +129,38 @@
             </div>
 
             <div id="sec-settings" class="section" style="display:none">
-                <div class="card" style="max-width: 400px; margin: 0 auto;">
-                    <h3>🔐 Смена пароля администратора</h3>
-                    <input type="password" id="new-pass" placeholder="Новый пароль">
-                    <button onclick="changePassword()" style="background: var(--primary)">Сохранить новый пароль</button>
+                <div class="grid">
+                    <div class="card">
+                        <h3>📈 Прибыль за месяц</h3>
+                        <div id="profit-report" style="font-size: 24px; font-weight: bold; color: var(--secondary);">0 TJS</div>
+                        <p style="font-size: 12px; color: #666">Расчет: (Цена продажи - Цена опта) * Кол-во</p>
+                    </div>
+                    <div class="card">
+                        <h3>🔐 Настройки</h3>
+                        <input type="password" id="new-pass" placeholder="Новый пароль">
+                        <button onclick="changePassword()" style="background: var(--primary)">Сменить пароль</button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Модальное окно истории клиента -->
+    <div id="clientModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalClientName">История клиента</h3>
+            <div class="table-wrapper">
+                <table id="clientDetailTable">
+                    <thead><tr><th>Дата</th><th>Товар</th><th>Сумма</th><th>Статус</th></tr></thead>
+                    <tbody id="clientDetailBody"></tbody>
+                </table>
+            </div>
+            <button onclick="closeModal()" style="background:var(--primary); margin-top:15px">Закрыть</button>
+        </div>
+    </div>
+
     <script>
-        // --- КОНФИГУРАЦИЯ FIREBASE (ЗАМЕНИТЕ СВОИМИ ДАННЫМИ) ---
+        // --- КОНФИГУРАЦИЯ FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyBzTZJDPrXpjsQOZj0QDMXtDMaH3rMF8Ek",
             authDomain: "c-tajkomp.firebaseapp.com",
@@ -135,15 +174,14 @@
         firebase.initializeApp(firebaseConfig);
         const rdb = firebase.database();
 
-        let db = { stock: [], sales: [], adminPass: 'admin123' };
+        let db = { stock: [], sales: [], clients: [], adminPass: 'admin123' };
 
-        // Слушатель обновлений в реальном времени
         rdb.ref('/').on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                // Превращаем объекты Firebase в массивы для вашего кода
                 db.stock = data.stock ? Object.values(data.stock) : [];
-                db.sales = data.sales ? Object.values(data.sales) : [];
+                db.sales = data.sales ? Object.keys(data.sales).map(key => ({...data.sales[key], id: key})) : [];
+                db.clients = data.clients ? Object.values(data.clients) : [];
                 db.adminPass = data.adminPass || 'admin123';
                 render();
             }
@@ -165,81 +203,176 @@
         function updateStock() {
             const name = document.getElementById('p-name').value;
             const qty = parseInt(document.getElementById('p-qty').value);
+            const optPrice = parseFloat(document.getElementById('p-opt-price').value);
             const price = parseFloat(document.getElementById('p-price').value);
 
-            if(!name || !qty || !price) return alert('Заполните всё');
+            if(!name || !qty || !price || !optPrice) return alert('Заполните все цены и количество');
 
-            // В Firebase Realtime Database удобнее использовать имя товара как ключ
-            const stockRef = rdb.ref('stock/' + name.replace(/\./g, '_'));
+            const stockRef = rdb.ref('stock/' + name.replace(/\.|\#|\$|\[|\]/g, '_'));
             
             stockRef.once('value').then((snapshot) => {
                 const current = snapshot.val();
                 if(current) {
-                    stockRef.update({ qty: current.qty + qty, price: price });
+                    stockRef.update({ qty: current.qty + qty, price: price, optPrice: optPrice });
                 } else {
-                    stockRef.set({ name, qty, price });
+                    stockRef.set({ name, qty, price, optPrice });
                 }
             });
             
             document.getElementById('p-name').value = '';
             document.getElementById('p-qty').value = '';
+            document.getElementById('p-opt-price').value = '';
+            document.getElementById('p-price').value = '';
+        }
+
+        function addNewClient() {
+            const name = document.getElementById('new-client-name').value;
+            if(!name) return;
+            rdb.ref('clients/' + name.replace(/\.|\#|\$|\[|\]/g, '_')).set({ name: name });
+            document.getElementById('new-client-name').value = '';
+            alert('Клиент добавлен');
         }
 
         function processSale() {
-            const client = document.getElementById('sale-client').value;
+            let client = document.getElementById('sale-client').value.trim();
+            // Если имя пустое - записываем как Гость
+            if(!client) client = "Гость";
+
             const pName = document.getElementById('sale-item').value;
             const qty = parseInt(document.getElementById('sale-qty').value);
+            const status = document.getElementById('sale-type').value;
             const date = new Date().toLocaleString('ru-RU', { day:'2-digit', month:'2-digit', year:'numeric' });
+            const monthKey = new Date().toLocaleString('ru-RU', { month:'2-digit', year:'numeric' });
+
+            if(!pName || !qty) return alert('Выберите товар и количество');
 
             let item = db.stock.find(i => i.name === pName);
             if(item && item.qty >= qty) {
-                const newQty = item.qty - qty;
-                const saleData = { client, product: pName, qty, total: qty * item.price, date };
+                const saleData = { 
+                    client, 
+                    product: pName, 
+                    qty, 
+                    total: qty * item.price, 
+                    optTotal: qty * (item.optPrice || 0),
+                    date, 
+                    monthKey,
+                    status 
+                };
 
-                // Обновляем склад и добавляем продажу
-                rdb.ref('stock/' + pName.replace(/\./g, '_')).update({ qty: newQty });
+                rdb.ref('stock/' + pName.replace(/\.|\#|\$|\[|\]/g, '_')).update({ qty: item.qty - qty });
                 rdb.ref('sales').push(saleData);
-            } else { alert('Ошибка на складе'); }
+                
+                // Сохраняем клиента в базу, если его нет и это не Гость
+                if(client !== "Гость") {
+                    rdb.ref('clients/' + client.replace(/\.|\#|\$|\[|\]/g, '_')).set({ name: client });
+                }
+                
+                document.getElementById('sale-qty').value = '';
+                document.getElementById('sale-client').value = '';
+            } else { alert('Недостаточно товара на складе'); }
         }
 
-        function changePassword() {
-            const newP = document.getElementById('new-pass').value;
-            if(newP.length < 4) return alert('Пароль слишком короткий');
-            rdb.ref('adminPass').set(newP).then(() => {
-                alert('Пароль изменен! Войдите снова.');
-                location.reload();
-            });
+        function changeSaleStatus(saleId, newStatus) {
+            rdb.ref('sales/' + saleId).update({ status: newStatus });
+            closeModal();
         }
+
+        function openClientDetails(name) {
+            const modal = document.getElementById('clientModal');
+            const body = document.getElementById('clientDetailBody');
+            document.getElementById('modalClientName').innerText = name;
+            body.innerHTML = '';
+            
+            const clientSales = db.sales.filter(s => s.client === name);
+
+            clientSales.forEach(s => {
+                const isDebt = s.status === 'безналичий';
+                body.innerHTML += `
+                    <tr>
+                        <td>${s.date}</td>
+                        <td>${s.product} (x${s.qty})</td>
+                        <td>${s.total} TJS</td>
+                        <td>
+                            ${isDebt ? `<button class="status-debt" onclick="changeSaleStatus('${s.id}', 'продажа')">Долг (Оплатить)</button>` : '<span class="status-paid">Оплачено</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+            modal.style.display = 'block';
+        }
+
+        function closeModal() { document.getElementById('clientModal').style.display = 'none'; }
 
         function render() {
+            // Склад
             const stockList = document.getElementById('stock-list');
             const saleSelect = document.getElementById('sale-item');
             stockList.innerHTML = '';
             saleSelect.innerHTML = '<option value="">Выбрать товар...</option>';
             
             db.stock.forEach(i => {
-                stockList.innerHTML += `<tr><td>${i.name}</td><td class="${i.qty < 3 ? 'status-low' : ''}">${i.qty}</td><td>${i.price}</td></tr>`;
+                stockList.innerHTML += `<tr><td>${i.name}</td><td class="${i.qty < 3 ? 'status-low' : ''}">${i.qty}</td><td>${i.optPrice || 0} / ${i.price}</td></tr>`;
                 if(i.qty > 0) saleSelect.innerHTML += `<option value="${i.name}">${i.name} (${i.qty})</option>`;
             });
 
+            // Краткая история
             const histShort = document.getElementById('sales-history-short');
             histShort.innerHTML = '';
             db.sales.slice(-5).reverse().forEach(s => {
-                histShort.innerHTML += `<tr><td>${s.date}</td><td>${s.client}</td><td>${s.total}</td></tr>`;
+                histShort.innerHTML += `<tr><td>${s.client}</td><td>${s.total}</td><td><small>${s.status}</small></td></tr>`;
             });
 
+            // Список клиентов и подсказок
             const clientList = document.getElementById('clients-full-list');
+            const suggestions = document.getElementById('client-suggestions');
             clientList.innerHTML = '';
-            const clientMap = {};
-            db.sales.forEach(s => {
-                if(!clientMap[s.client]) clientMap[s.client] = { items: [], total: 0 };
-                clientMap[s.client].items.push(`${s.product} (${s.date})`);
-                clientMap[s.client].total += s.total;
+            suggestions.innerHTML = '';
+            
+            const clientStats = {};
+            
+            // Загружаем клиентов для выбора
+            db.clients.forEach(c => {
+                clientStats[c.name] = { total: 0, hasDebt: false };
+                suggestions.innerHTML += `<option value="${c.name}">`;
             });
 
-            for(let name in clientMap) {
-                clientList.innerHTML += `<tr><td><strong>${name}</strong></td><td style="font-size: 12px; color: #666">${clientMap[name].items.join('<br>')}</td><td><span class="total-badge">${clientMap[name].total} TJS</span></td></tr>`;
+            db.sales.forEach(s => {
+                if(!clientStats[s.client]) clientStats[s.client] = { total: 0, hasDebt: false };
+                clientStats[s.client].total += s.total;
+                if(s.status === 'безналичий') clientStats[s.client].hasDebt = true;
+            });
+
+            for(let name in clientStats) {
+                clientList.innerHTML += `
+                    <tr onclick="openClientDetails('${name}')" style="cursor:pointer">
+                        <td><strong>${name}</strong></td>
+                        <td><span class="total-badge">${clientStats[name].total} TJS</span></td>
+                        <td>${clientStats[name].hasDebt ? '<span class="status-debt">Есть долг</span>' : '<span class="status-paid">Чисто</span>'}</td>
+                    </tr>`;
             }
+
+            // Расчет прибыли
+            const currentMonth = new Date().toLocaleString('ru-RU', { month:'2-digit', year:'numeric' });
+            let monthlyProfit = 0;
+            db.sales.forEach(s => {
+                if(s.monthKey === currentMonth) {
+                    monthlyProfit += (s.total - (s.optTotal || 0));
+                }
+            });
+            document.getElementById('profit-report').innerText = monthlyProfit.toFixed(2) + ' TJS';
+        }
+
+        function changePassword() {
+            const newP = document.getElementById('new-pass').value;
+            if(newP.length < 4) return alert('Пароль слишком короткий');
+            rdb.ref('adminPass').set(newP).then(() => {
+                alert('Пароль изменен!');
+                location.reload();
+            });
+        }
+
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('clientModal')) closeModal();
         }
     </script>
 </body>
