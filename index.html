@@ -740,5 +740,115 @@
     });
 })();
 </script>
+<!-- НОВЫЙ БЛОК: СИСТЕМА БАЛАНСА КЛИЕНТОВ -->
+<script>
+(function() {
+    // 1. Добавляем в модальное окно поле для пополнения баланса
+    const modalContent = document.querySelector('.modal-content');
+    if (modalContent) {
+        const balanceDiv = document.createElement('div');
+        balanceDiv.id = 'balance-management';
+        balanceDiv.style.cssText = "margin-bottom: 20px; padding: 15px; background: #e8f6f3; border-radius: 8px; border: 1px solid #d1f2eb;";
+        balanceDiv.innerHTML = `
+            <h4 style="margin-top:0; color:var(--secondary)">💰 Управление балансом</h4>
+            <div style="display:flex; gap:10px;">
+                <input type="number" id="top-up-amount" placeholder="Сумма пополнения" style="margin:0">
+                <button onclick="topUpBalance()" style="width:120px; margin:0">Пополнить</button>
+            </div>
+            <div id="current-balance-display" style="margin-top:10px; font-weight:bold; font-size:18px">Баланс: 0 TJS</div>
+        `;
+        modalContent.insertBefore(balanceDiv, modalContent.querySelector('.table-wrapper'));
+    }
+
+    // Функция пополнения баланса
+    window.topUpBalance = function() {
+        const name = document.getElementById('modalClientName').innerText;
+        const amount = parseFloat(document.getElementById('top-up-amount').value);
+        if (!amount || amount <= 0) return alert('Введите корректную сумму');
+
+        const clientRef = rdb.ref('clients/' + name.replace(/\.|\#|\$|\[|\]/g, '_'));
+        clientRef.once('value').then(snapshot => {
+            const data = snapshot.val() || { name: name, balance: 0 };
+            const newBalance = (data.balance || 0) + amount;
+            clientRef.update({ balance: newBalance }).then(() => {
+                alert('Баланс пополнен!');
+                document.getElementById('top-up-amount').value = '';
+                // Обновление цифры в модалке сразу
+                document.getElementById('current-balance-display').innerText = `Баланс: ${newBalance.toFixed(2)} TJS`;
+            });
+        });
+    };
+
+    // 2. Расширяем отображение списка клиентов (добавляем колонку Баланс)
+    const originalRenderClients = render;
+    render = function() {
+        originalRenderClients();
+        
+        // Добавляем заголовок "Баланс" в таблицу клиентов, если его нет
+        const clientHead = document.querySelector('#sec-clients table thead tr');
+        if (clientHead && clientHead.cells.length === 3) {
+            const th = document.createElement('th');
+            th.innerText = 'Баланс';
+            clientHead.insertBefore(th, clientHead.cells[2]);
+        }
+
+        // Заполняем данные баланса в строках
+        const clientRows = document.querySelectorAll('#clients-full-list tr');
+        clientRows.forEach(row => {
+            const name = row.querySelector('strong').innerText;
+            const clientData = db.clients.find(c => c.name === name);
+            const balance = (clientData && clientData.balance) ? clientData.balance : 0;
+            
+            if (row.cells.length === 3) { // Если кнопка удаления уже добавлена вашим кодом
+                const td = document.createElement('td');
+                td.innerHTML = `<span style="color:${balance > 0 ? 'var(--secondary)' : '#999'}">${balance.toFixed(2)} TJS</span>`;
+                row.insertBefore(td, row.cells[2]);
+            }
+        });
+    };
+
+    // 3. Обновляем модалку, чтобы видеть баланс при открытии
+    const originalOpenDetails = openClientDetails;
+    openClientDetails = function(name) {
+        originalOpenDetails(name);
+        const clientData = db.clients.find(c => c.name === name);
+        const balance = (clientData && clientData.balance) ? clientData.balance : 0;
+        const display = document.getElementById('current-balance-display');
+        if (display) display.innerText = `Баланс: ${balance.toFixed(2)} TJS`;
+    };
+
+    // 4. ГЛАВНАЯ ЛОГИКА: Списание с баланса при продаже
+    const originalProcessSale = processSale;
+    processSale = function() {
+        const clientName = document.getElementById('sale-client').value.trim();
+        const pName = document.getElementById('sale-item').value;
+        const qty = parseInt(document.getElementById('sale-qty').value);
+        
+        if (!clientName || clientName === "Гость" || !pName || !qty) {
+            return originalProcessSale();
+        }
+
+        const item = db.stock.find(i => i.name === pName);
+        const clientData = db.clients.find(c => c.name === clientName);
+        
+        if (item && clientData && clientData.balance > 0) {
+            const totalCost = qty * (parseFloat(document.getElementById('sale-custom-price')?.value) || item.price);
+            
+            if (clientData.balance >= totalCost) {
+                if (confirm(`У клиента на балансе ${clientData.balance} TJS. Списать ${totalCost} TJS в счет оплаты?`)) {
+                    // Уменьшаем баланс в Firebase
+                    const newBalance = clientData.balance - totalCost;
+                    rdb.ref('clients/' + clientName.replace(/\.|\#|\$|\[|\]/g, '_')).update({ balance: newBalance });
+                    
+                    // Меняем тип сделки на "продажа" (оплачено), так как деньги сняты с баланса
+                    document.getElementById('sale-type').value = "продажа";
+                    alert(`Списано с баланса. Остаток: ${newBalance.toFixed(2)} TJS`);
+                }
+            }
+        }
+        originalProcessSale();
+    };
+})();
+</script>
 </body>
 </html>
